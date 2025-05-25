@@ -1,11 +1,15 @@
 'use client';
 
 import { useState } from "react";
+import Link from "next/link"; // Added Link import
 import { IoInformationCircle } from "react-icons/io5";
 import { IoMdClose } from "react-icons/io";
 import { HiDownload } from "react-icons/hi";
-import { MdContentCopy, MdCheck } from "react-icons/md";
+import { MdContentCopy, MdCheck, MdSave } from "react-icons/md";
 import { fal } from "@fal-ai/client";
+import { useAuth } from "src/lib/hooks/useAuth";
+import { SignInWithGoogle } from "src/components/SignInWithGoogle";
+import { saveImageToGallery } from "src/lib/firebase/firebaseUtils";
 
 interface GeneratedImage {
   url: string;
@@ -42,7 +46,49 @@ export default function Home() {
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [copiedStates, setCopiedStates] = useState<boolean[]>([]);
+  const [savingStates, setSavingStates] = useState<string[]>([]); // Added for saving feedback: "idle", "saving", "saved", "error"
   const [selectedModel, setSelectedModel] = useState<AIModel>(AI_MODELS[0]);
+  const { user, loading, signOut } = useAuth();
+
+  const handleSaveToGallery = async (imageUrl: string, index: number) => {
+    if (!user) return;
+
+    setSavingStates(prev => {
+      const newStates = [...prev];
+      newStates[index] = "saving";
+      return newStates;
+    });
+
+    try {
+      await saveImageToGallery(imageUrl, inputValue, selectedModel.id);
+      setSavingStates(prev => {
+        const newStates = [...prev];
+        newStates[index] = "saved";
+        return newStates;
+      });
+      setTimeout(() => {
+        setSavingStates(prev => {
+          const newStates = [...prev];
+          newStates[index] = "idle";
+          return newStates;
+        });
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to save image to gallery:", error);
+      setSavingStates(prev => {
+        const newStates = [...prev];
+        newStates[index] = "error";
+        return newStates;
+      });
+      setTimeout(() => {
+        setSavingStates(prev => {
+          const newStates = [...prev];
+          newStates[index] = "idle";
+          return newStates;
+        });
+      }, 3000);
+    }
+  };
 
   const handleCopy = async (url: string, index: number) => {
     try {
@@ -87,6 +133,7 @@ export default function Home() {
     setIsGenerating(true);
     setShowImages(true);
     setGeneratedImages([]);
+      setSavingStates(Array(4).fill("idle")); // Reset saving states
 
     try {
       // Configure fal client
@@ -130,13 +177,33 @@ export default function Home() {
       <nav className="relative bg-gray-700/90 backdrop-blur-sm text-white p-4 shadow-md z-20">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <h1 className="text-xl font-semibold">AI Image Generator</h1>
-          <button
-            onClick={() => setShowInfoModal(true)}
-            className="text-white hover:text-blue-200 transition-colors"
-            aria-label="Information about APIs"
-          >
-            <IoInformationCircle className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowInfoModal(true)}
+              className="text-white hover:text-blue-200 transition-colors"
+              aria-label="Information about APIs"
+            >
+              <IoInformationCircle className="w-6 h-6" />
+            </button>
+            {loading ? (
+              <span className="text-white">Loading...</span>
+            ) : user ? (
+              <>
+                <span className="text-white">Welcome, {user.displayName || 'User'}</span>
+                <Link href="/gallery" className="text-white hover:text-blue-200 transition-colors px-3 py-2 rounded-md text-sm font-medium">
+                  Gallery
+                </Link>
+                <button
+                  onClick={signOut}
+                  className="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <SignInWithGoogle />
+            )}
+          </div>
         </div>
       </nav>
 
@@ -250,6 +317,37 @@ export default function Home() {
                       >
                         <HiDownload className="w-5 h-5 text-gray-700" />
                       </button>
+                      {user && (
+                        <button
+                          onClick={() => handleSaveToGallery(generatedImages[index].url, index)}
+                          disabled={savingStates[index] === "saving" || savingStates[index] === "saved"}
+                          className={`p-2 rounded-lg bg-white/90 hover:bg-white shadow-lg transition-all transform hover:scale-105 ${
+                            savingStates[index] === "saving" ? "cursor-not-allowed" : ""
+                          } ${
+                            savingStates[index] === "saved" ? "bg-green-100 hover:bg-green-100" : ""
+                          } ${
+                            savingStates[index] === "error" ? "bg-red-100 hover:bg-red-100" : ""
+                          }`}
+                          title={
+                            savingStates[index] === "saved" ? "Saved!" :
+                            savingStates[index] === "error" ? "Error saving" :
+                            "Save to Gallery"
+                          }
+                        >
+                          {savingStates[index] === "saving" && (
+                            <div className="w-5 h-5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                          )}
+                          {savingStates[index] === "saved" && (
+                            <MdCheck className="w-5 h-5 text-green-500" />
+                          )}
+                           {(savingStates[index] === "idle" || !savingStates[index]) && (
+                            <MdSave className="w-5 h-5 text-gray-700" />
+                          )}
+                          {savingStates[index] === "error" && (
+                             <IoMdClose className="w-5 h-5 text-red-500" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : (
